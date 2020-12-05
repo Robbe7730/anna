@@ -61,7 +61,7 @@ fn next_move(state: &GameState) -> Turn {
                         .expect("Unreachable statement");
         let dest = other_planets
                         .iter()
-                        .max_by_key(|x| x.ship_count)
+                        .min_by_key(|x| x.ship_count)
                         .expect("Unreachable statement");
         Turn {
             moves: vec![Move {
