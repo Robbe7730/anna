@@ -1,6 +1,7 @@
 use std::io::{self, BufRead};
 use serde::{Serialize, Deserialize};
 use itertools::iproduct;
+use std::collections::HashSet;
 
 // ----- INPUT -----
 
@@ -43,6 +44,8 @@ struct Turn {
     moves: Vec<Move>,
 }
 
+// ----- HELPER FUNCTIONS -----
+
 fn distance_between_planets(planet1: &Planet, planet2: &Planet) -> f64 {
     let dx = planet1.x - planet2.x;
     let dy = planet1.y - planet2.y;
@@ -67,7 +70,7 @@ fn incoming_ship_diff(planet: &Planet, gamestate: &GameState) -> isize {
         .sum()
 }
 
-fn ship_count_on_arrival(source: &Planet, dest: &Planet, gamestate: &GameState) -> isize {
+fn minimal_ship_count_on_arrival(source: &Planet, dest: &Planet, gamestate: &GameState) -> isize {
     let distance = distance_between_planets(source, dest).ceil() as usize;
     let expeditions_diff: isize = incoming_ship_diff(dest, gamestate);
 
@@ -79,13 +82,15 @@ fn ship_count_on_arrival(source: &Planet, dest: &Planet, gamestate: &GameState) 
 }
 
 fn score(source: &Planet, dest: &Planet, gamestate: &GameState) -> usize {
-    let ship_count = ship_count_on_arrival(source, dest, gamestate);
-    if ship_count < (source.ship_count as isize + incoming_ship_diff(source, gamestate)) {
+    let ship_count = minimal_ship_count_on_arrival(source, dest, gamestate);
+    if ship_count > (source.ship_count as isize + incoming_ship_diff(source, gamestate) - 1) {
         0
     } else {
-        distance_between_planets(source, dest).ceil() as usize * ship_count as usize
+        distance_between_planets(source, dest).ceil() as usize * (ship_count+1) as usize
     }
 }
+
+// ----- NEXT MOVE -----
 
 fn next_move(state: &GameState) -> Turn {
     let my_planets: Vec<&Planet> = state.planets
@@ -102,23 +107,34 @@ fn next_move(state: &GameState) -> Turn {
     } else {
         let mut moves = vec![];
 
-        // TODO: more moves
-        let best_move = iproduct!(my_planets, other_planets)
-                                .map(|(s,d)| (s, d, score(s, d, state)))
-                                .filter(|(_,_,sc)| *sc != 0)
-                                .min_by_key(|x| (*x).2);
+        let mut best_move = iproduct!(my_planets.iter(), other_planets.iter())
+            .map(|(s,d)| (s, d, score(s, d, state)))
+            .filter(|(_,_,sc)| *sc != 0)
+            .min_by_key(|x| (*x).2);
 
-        if let Some((source, dest, score)) = best_move {
-            eprintln!("found move with score {}", score);
+        let mut used_planets: HashSet<String> = HashSet::new();
+
+        while let Some((source, dest, _sc)) = best_move {
             moves.push(Move {
                 origin: source.name.to_string(),
                 destination: dest.name.to_string(),
-                ship_count: ship_count_on_arrival(source, dest, state) as usize + 1
+                ship_count: minimal_ship_count_on_arrival(source, dest, state) as usize + 1
             });
+
+            used_planets.insert(source.name.to_string());
+
+            best_move = iproduct!(
+                my_planets.iter().filter(|x| !used_planets.contains(&x.name)),
+                other_planets.iter()
+            ).map(|(s,d)| (s, d, score(s, d, state)))
+             .filter(|(_,_,sc)| *sc != 0)
+             .min_by_key(|x| (*x).2);
         }
         Turn { moves: moves }
     }
 }
+
+// ----- MAIN -----
 
 fn main() {
     let stdin = io::stdin();
