@@ -52,41 +52,48 @@ fn distance_between_planets(planet1: &Planet, planet2: &Planet) -> f64 {
     (dx * dx + dy * dy).sqrt()
 }
 
-fn incoming_ship_diff(planet: &Planet, gamestate: &GameState) -> isize {
-    gamestate.expeditions
-        .iter()
-        .filter(|x| x.destination == planet.name)
-        .map(|x| {
-            if let Some(planet_owner) = planet.owner {
-                if x.owner == planet_owner {
-                    1
-                } else {
-                    -1
-                }
+fn simulate_arrivals(planet: &Planet, gamestate: &GameState) -> (usize, usize) {
+    let mut relevant_expeditions = gamestate.expeditions
+                                        .iter()
+                                        .filter(|x| x.destination == planet.name)
+                                        .collect::<Vec<&Expedition>>();
+    relevant_expeditions.sort_by_key(|x| x.turns_remaining);
+    let mut owner = planet.owner.unwrap_or(0);
+    let mut ship_count = planet.ship_count;
+    let mut last_simulated_turn = 0;
+    for expedition in relevant_expeditions {
+        // Account for growth
+        if owner != 0 {
+            ship_count += expedition.turns_remaining - last_simulated_turn;
+        }
+        last_simulated_turn = expedition.turns_remaining;
+
+        if expedition.owner == owner {
+            ship_count += expedition.ship_count;
+        } else {
+            if ship_count < expedition.ship_count {
+                owner = expedition.owner;
+                ship_count = expedition.ship_count - ship_count;
+            } else if ship_count == expedition.ship_count {
+                owner = 0;
+                ship_count = 0;
             } else {
-                -1
+                ship_count -= expedition.ship_count;
             }
-        })
-        .sum()
-}
-
-fn minimal_ship_count_on_arrival(source: &Planet, dest: &Planet, gamestate: &GameState) -> isize {
-    let distance = distance_between_planets(source, dest).ceil() as usize;
-    let expeditions_diff: isize = incoming_ship_diff(dest, gamestate);
-
-    if dest.owner.is_none() {
-        dest.ship_count as isize + expeditions_diff
-    } else {
-        (dest.ship_count + distance) as isize + expeditions_diff
+        }
     }
+    (owner, ship_count)
 }
 
-fn score(source: &Planet, dest: &Planet, gamestate: &GameState) -> usize {
-    let ship_count = minimal_ship_count_on_arrival(source, dest, gamestate);
-    if ship_count > (source.ship_count as isize + incoming_ship_diff(source, gamestate) - 1) {
-        0
+fn score(source: &Planet, dest: &Planet, gamestate: &GameState) -> (usize, usize) {
+    let (owner, ship_count) = simulate_arrivals(dest, gamestate);
+    if (ship_count+1) >= source.ship_count || owner == 1 {
+        (0, 0)
     } else {
-        distance_between_planets(source, dest).ceil() as usize * (ship_count+1) as usize
+        (
+            ship_count+1,
+            distance_between_planets(source, dest).ceil() as usize * (ship_count+1)
+        )
     }
 }
 
@@ -109,16 +116,16 @@ fn next_move(state: &GameState) -> Turn {
 
         let mut best_move = iproduct!(my_planets.iter(), other_planets.iter())
             .map(|(s,d)| (s, d, score(s, d, state)))
-            .filter(|(_,_,sc)| *sc != 0)
+            .filter(|(_,_,(_,sc))| *sc != 0)
             .min_by_key(|x| (*x).2);
 
         let mut used_planets: HashSet<String> = HashSet::new();
 
-        while let Some((source, dest, _sc)) = best_move {
+        while let Some((source, dest, (ship_count, _score))) = best_move {
             moves.push(Move {
                 origin: source.name.to_string(),
                 destination: dest.name.to_string(),
-                ship_count: minimal_ship_count_on_arrival(source, dest, state) as usize + 1
+                ship_count: ship_count,
             });
 
             used_planets.insert(source.name.to_string());
@@ -127,7 +134,7 @@ fn next_move(state: &GameState) -> Turn {
                 my_planets.iter().filter(|x| !used_planets.contains(&x.name)),
                 other_planets.iter()
             ).map(|(s,d)| (s, d, score(s, d, state)))
-             .filter(|(_,_,sc)| *sc != 0)
+             .filter(|(_,_,(_, sc))| *sc != 0)
              .min_by_key(|x| (*x).2);
         }
         Turn { moves: moves }
