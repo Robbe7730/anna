@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 // ----- INPUT -----
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Planet {
     name: String,
     x: f64,
@@ -14,7 +14,7 @@ struct Planet {
     ship_count: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Expedition {
     id: usize,
     origin: String,
@@ -24,7 +24,7 @@ struct Expedition {
     ship_count: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct GameState {
     planets: Vec<Planet>,
     expeditions: Vec<Expedition>,
@@ -32,14 +32,14 @@ struct GameState {
 
 // ----- OUTPUT -----
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Move {
     origin: String,
     destination: String,
     ship_count: usize
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Turn {
     moves: Vec<Move>,
 }
@@ -117,7 +117,7 @@ fn next_move(state: &GameState) -> Turn {
         let mut best_move = iproduct!(my_planets.iter(), other_planets.iter())
             .map(|(s,d)| (s, d, score(s, d, state)))
             .filter(|(_,_,(_,sc))| *sc != 0)
-            .min_by_key(|x| (*x).2);
+            .min_by_key(|x| (*x).2.1);
 
         let mut used_planets: HashSet<String> = HashSet::new();
 
@@ -150,4 +150,151 @@ fn main() {
         let turn: Turn = next_move(&state);
         println!("{}", serde_json::to_string(&turn).expect("Could not serialize"));
     }
+}
+
+// ----- TESTS -----
+
+#[test]
+fn test_simulate_arrivals() {
+    let leegistan = Planet {
+                name: "Planeet Leegistan".to_string(),
+                owner: Some(1),
+                ship_count: 0,
+                x: 1.0,
+                y: 1.0
+            };
+    let neemmijover = Planet {
+                name: "Planeet Neemmijover".to_string(),
+                owner: None,
+                ship_count: 1,
+                x: 1.0,
+                y: -1.0
+            };
+    let swaparoo = Planet {
+                name: "Planeet Swaparoo".to_string(),
+                owner: None,
+                ship_count: 1,
+                x: -1.0,
+                y: 1.0
+            };
+    let reinforcement = Planet {
+                name: "Planeet Reinforcement".to_string(),
+                owner: Some(1),
+                ship_count: 1,
+                x: -1.0,
+                y: -1.0
+            };
+    let dummy_gamestate: GameState = GameState {
+        planets: vec![
+            leegistan.clone(),
+            neemmijover.clone(),
+            swaparoo.clone(),
+            reinforcement.clone(),
+        ],
+        expeditions: vec![
+            Expedition {
+                destination: "Planeet Neemmijover".to_string(),
+                id: 1,
+                origin: "Planeet Leegistan".to_string(),
+                owner: 2,
+                ship_count: 2,
+                turns_remaining: 2,
+            },
+            Expedition {
+                destination: "Planeet Swaparoo".to_string(),
+                id: 2,
+                origin: "Planeet Leegistan".to_string(),
+                owner: 2,
+                ship_count: 2,
+                turns_remaining: 1,
+            },
+            Expedition {
+                destination: "Planeet Swaparoo".to_string(),
+                id: 3,
+                origin: "Planeet Leegistan".to_string(),
+                owner: 1,
+                ship_count: 20,
+                turns_remaining: 10,
+            },
+            Expedition {
+                destination: "Planeet Reinforcement".to_string(),
+                id: 4,
+                origin: "Planeet Leegistan".to_string(),
+                owner: 1,
+                ship_count: 2,
+                turns_remaining: 2,
+            },
+        ],
+    };
+
+    assert_eq!((1, 0),  simulate_arrivals(&leegistan,     &dummy_gamestate));
+    assert_eq!((2, 1),  simulate_arrivals(&neemmijover,   &dummy_gamestate));
+    assert_eq!((1, 10), simulate_arrivals(&swaparoo,      &dummy_gamestate));
+    assert_eq!((1, 5),  simulate_arrivals(&reinforcement, &dummy_gamestate));
+}
+
+#[test]
+fn test_score_fewer_ships() {
+    // Same distance, fewer ships should pick fewest ships
+    let homebase = Planet {
+                name: "Homebase".to_string(),
+                owner: Some(1),
+                ship_count: 10,
+                x: 0.0,
+                y: 0.0
+            };
+    let fort = Planet {
+                name: "Fort".to_string(),
+                owner: Some(2),
+                ship_count: 8,
+                x: 1.0,
+                y: 0.0
+            };
+    let mudhut = Planet {
+                name: "Mud Hut".to_string(),
+                owner: Some(2),
+                ship_count: 1,
+                x: -1.0,
+                y: 0.0
+            };
+    let dummy_gamestate: GameState = GameState {
+        planets: vec![
+            homebase.clone(),
+            fort.clone(),
+            mudhut.clone(),
+        ],
+        expeditions: vec![],
+    };
+
+    let mudhut_score = score(&homebase, &mudhut, &dummy_gamestate);
+    let fort_score   = score(&homebase, &fort,   &dummy_gamestate);
+    assert!(mudhut_score.1 < fort_score.1);
+}
+
+#[test]
+fn test_score_empty_planet() {
+    let homebase = Planet {
+                name: "Homebase".to_string(),
+                owner: Some(1),
+                ship_count: 10,
+                x: 0.0,
+                y: 0.0
+            };
+    let empty = Planet {
+                name: "Empty".to_string(),
+                owner: None,
+                ship_count: 0,
+                x: 1.0,
+                y: 0.0
+            };
+    let dummy_gamestate: GameState = GameState {
+        planets: vec![
+            homebase.clone(),
+            empty.clone(),
+        ],
+        expeditions: vec![],
+    };
+
+    let empty_score = score(&homebase, &empty, &dummy_gamestate).1;
+    assert!(empty_score > 0);
 }
